@@ -7,6 +7,8 @@ from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user
 from flask import current_app as app
 
+from wtforms import BooleanField, SubmitField
+
 from main import db
 from models import event_year
 from models.cfp import Proposal, Venue
@@ -15,6 +17,7 @@ from models.user import generate_api_token
 from models.admin_message import AdminMessage
 
 from ..common import feature_flag, feature_enabled
+from ..common.forms import Form
 from ..volunteer import v_user_required
 
 from . import schedule, event_tz
@@ -268,15 +271,26 @@ def time_machine():
 @schedule.route("/herald")
 @v_user_required
 def herald_main():
+    # In theory this should redirect you based on your shift
     venue_list = ("Stage A", "Stage B", "Stage C")
     return render_template("schedule/herald/main.html", venue_list=venue_list)
+
+
+class HeraldForm(Form):
+    may_record = BooleanField("Can this be recorded?")
+    speaker_arrived = BooleanField("Has the speaker arrived?")
+    update = SubmitField("Update info")
+
+    def __init__(self, proposal):
+        self.may_record.data = proposal.may_record
+        self.speaker_arrived = proposal.speaker_arrived
 
 
 @schedule.route("/herald/<string:venue_name>")
 @v_user_required
 def herald_venue(venue_name):
 
-    proposals = (
+    now, next = (
         Proposal.query.join(Venue, Venue.id == Proposal.scheduled_venue_id)
         .filter(
             Venue.name == venue_name,
@@ -289,9 +303,12 @@ def herald_venue(venue_name):
         .limit(2)
         .all()
     )
+
     return render_template(
         "schedule/herald/venue.html",
         venue_name=venue_name,
-        now=proposals[0],
-        next=proposals[1],
+        now=now,
+        now_form=HeraldForm(now),
+        next=next,
+        next_form=HeraldForm(next),
     )
