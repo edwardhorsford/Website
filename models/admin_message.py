@@ -1,3 +1,4 @@
+import pendulum
 from datetime import datetime
 
 from main import db
@@ -12,6 +13,8 @@ class AdminMessage(BaseModel):
     message = db.Column(db.String, nullable=False)
     show = db.Column(db.Boolean, nullable=False, default=False)
 
+    topic = db.Column(db.String, nullable=True)
+
     end = db.Column(db.DateTime)
 
     created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -22,6 +25,21 @@ class AdminMessage(BaseModel):
     )
 
     creator = db.relationship("User", backref="admin_messages")
+
+    def __init__(self, message, user, end=None, show=False, topic=None):
+        self.message = message
+        self.created_by = user.id
+
+        if end:
+            self.end = end
+        else:
+            self.end = pendulum.today().end_of("day")
+
+        if show:
+            self.show = show
+
+        if topic:
+            self.topic = topic
 
     @property
     def is_visible(self):
@@ -38,3 +56,10 @@ class AdminMessage(BaseModel):
     @classmethod
     def get_by_id(cls, id):
         return AdminMessage.query.get_or_404(id)
+
+    @classmethod
+    def get_all_for_topic(cls, topic):
+        return AdminMessage.query.filter(
+            AdminMessage.topic == topic,
+            AdminMessage.end > datetime.utcnow(),
+        ).all()
