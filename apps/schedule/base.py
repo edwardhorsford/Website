@@ -1,7 +1,7 @@
 import html
 import random
 import pendulum
-from datetime import timedelta
+from datetime import datetime, timedelta
 from collections import defaultdict
 
 from flask import render_template, redirect, url_for, flash, request, abort
@@ -299,14 +299,14 @@ def herald_venue(venue_name):
     def herald_message(message, proposal):
         app.logger.info(f"Creating new message {message}")
         end = proposal.scheduled_time + timedelta(minutes=proposal.scheduled_duration)
-        return AdminMessage(message, current_user, end=end, topic="heralds")
+        return AdminMessage(f"[{venue_name}] -- {message}", current_user, end=end, topic="heralds")
 
     now, next = (
         Proposal.query.join(Venue, Venue.id == Proposal.scheduled_venue_id)
         .filter(
             Venue.name == venue_name,
             Proposal.state.in_(["accepted", "finished"]),
-            Proposal.scheduled_time.isnot(None),
+            Proposal.scheduled_time > datetime.now(),
             Proposal.scheduled_duration.isnot(None),
             Proposal.hide_from_schedule.isnot(True),
         )
@@ -318,6 +318,91 @@ def herald_venue(venue_name):
     form = HeraldStageForm()
 
     if form.validate_on_submit():
+        if form.now.update.data:
+            if form.now.talk_id.data != now.id:
+                flash("'now' changed, please refresh")
+                return redirect(url_for(".herald_venue", venue_name=venue_name))
+
+            change = "may" if form.now.may_record else "may not"
+            msg = herald_message(f"Change: {change} record '{now.title}'", now)
+            now.may_record = form.now.may_record.data
+
+        elif form.next.update.data:
+            if form.next.talk_id.data != next.id:
+                flash("'next' changed, please refresh")
+                return redirect(url_for(".herald_venue", venue_name=venue_name))
+            change = "may" if form.next.may_record else "may not"
+            msg = herald_message(f"Change: {change} record '{next.title}'", next)
+            next.may_record = form.next.may_record.data
+
+        elif form.now.speaker_here.data:
+            msg = herald_message(f"Current speaker, {now.user.name}, arrived.", now)
+
+        elif form.next.speaker_here.data:
+            msg = herald_message(f"Next speaker, ({next.user.name}), arrived.", next)
+
+        elif form.send_message.data:
+            # in lieu of a better time set TTL to end of next talk
+            msg = herald_message(form.message.data, next)
+
+        db.session.add(msg)
+        db.session.commit()
+
+    messages = AdminMessage.get_all_for_topic("heralds")
+
+    form.now.talk_id.data = now.id
+    form.now.may_record.data = now.may_record
+
+    form.next.talk_id.data = next.id
+    form.next.may_record.data = next.may_record
+
+    return render_template(
+        "schedule/herald/venue.html",
+        messages=messages,
+        venue_name=venue_name,
+        form=form,
+        now=now,
+        next=next,
+    )
+
+
+class GreenroomForm(Form):
+    stage_a = FormField(HeraldCommsForm)
+    stage_b = FormField(HeraldCommsForm)
+    stage_c = FormField(HeraldCommsForm)
+
+    message = StringField("Message")
+    send_message = SubmitField("Send message")
+
+
+
+@schedule.route("/greenroom", methods=["GET", "POST"])
+@v_user_required
+def greenroom():
+    def herald_message(message, proposal):
+        app.logger.info(f"Creating new message {message}")
+        end = proposal.scheduled_time + timedelta(minutes=proposal.scheduled_duration)
+        return AdminMessage(f"[greenroom] -- {message}", current_user, end=end, topic="heralds")
+
+    now, next = (
+        Proposal.query.join(Venue, Venue.id == Proposal.scheduled_venue_id)
+        .filter(
+            Proposal.state.in_(["accepted", "finished"]),
+            Proposal.scheduled_time > datetime.now(),
+            Proposal.scheduled_duration.isnot(None),
+            Proposal.hide_from_schedule.isnot(True),
+        )
+        .order_by(Proposal.scheduled_time)
+        .all()
+    )
+
+    form = GreenroomForm()
+
+    if form.validate_on_submit():
+        if form.stage_a.update.data:
+            pass
+
+
         if form.now.update.data:
             if form.now.talk_id.data != now.id:
                 flash("'now' changed, please refresh")
@@ -352,7 +437,7 @@ def herald_venue(venue_name):
             )
 
         elif form.send_message.data:
-            msg = herald_message(f"[{venue_name}] -- {form.message.data}", next)
+            msg = herald_message(f"[greenroom] -- {form.message.data}", next)
 
         db.session.add(msg)
         db.session.commit()
@@ -373,8 +458,3 @@ def herald_venue(venue_name):
         now=now,
         next=next,
     )
-
-
-@schedule.route("/greenroom")
-def greenroom():
-    pass
