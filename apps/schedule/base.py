@@ -299,7 +299,9 @@ def herald_venue(venue_name):
     def herald_message(message, proposal):
         app.logger.info(f"Creating new message {message}")
         end = proposal.scheduled_time + timedelta(minutes=proposal.scheduled_duration)
-        return AdminMessage(f"[{venue_name}] -- {message}", current_user, end=end, topic="heralds")
+        return AdminMessage(
+            f"[{venue_name}] -- {message}", current_user, end=end, topic="heralds"
+        )
 
     now, next = (
         Proposal.query.join(Venue, Venue.id == Proposal.scheduled_venue_id)
@@ -375,14 +377,15 @@ class GreenroomForm(Form):
     send_message = SubmitField("Send message")
 
 
-
 @schedule.route("/greenroom", methods=["GET", "POST"])
 @v_user_required
 def greenroom():
     def herald_message(message, proposal):
         app.logger.info(f"Creating new message {message}")
         end = proposal.scheduled_time + timedelta(minutes=proposal.scheduled_duration)
-        return AdminMessage(f"[greenroom] -- {message}", current_user, end=end, topic="heralds")
+        return AdminMessage(
+            f"[greenroom] -- {message}", current_user, end=end, topic="heralds"
+        )
 
     now, next = (
         Proposal.query.join(Venue, Venue.id == Proposal.scheduled_venue_id)
@@ -401,7 +404,6 @@ def greenroom():
     if form.validate_on_submit():
         if form.stage_a.update.data:
             pass
-
 
         if form.now.update.data:
             if form.now.talk_id.data != now.id:
