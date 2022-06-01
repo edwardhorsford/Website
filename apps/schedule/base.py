@@ -1,6 +1,7 @@
 import html
 import random
 import pendulum
+from datetime import timedelta
 from collections import defaultdict
 
 from flask import render_template, redirect, url_for, flash, request, abort
@@ -292,15 +293,13 @@ class HeraldStageForm(Form):
     send_message = SubmitField("Send message")
 
 
-def herald_message(self, message, user, end):
-
-    app.logger.info(f"Creating new message {message}")
-    return AdminMessage(message, user, topic="heralds")
-
-
-@schedule.route("/herald/<string:venue_name>")
+@schedule.route("/herald/<string:venue_name>", methods=["GET", "POST"])
 @v_user_required
 def herald_venue(venue_name):
+    def herald_message(message, proposal):
+        app.logger.info(f"Creating new message {message}")
+        end = proposal.scheduled_time + timedelta(minutes=proposal.scheduled_duration)
+        return AdminMessage(message, current_user, end=end, topic="heralds")
 
     now, next = (
         Proposal.query.join(Venue, Venue.id == Proposal.scheduled_venue_id)
@@ -320,39 +319,42 @@ def herald_venue(venue_name):
 
     if form.validate_on_submit():
         if form.now.update.data:
-            if form.now.talk_id != now.id:
+            if form.now.talk_id.data != now.id:
                 flash("'now' changed, please refresh")
                 return redirect(url_for(".herald_venue", venue_name=venue_name))
+
+            change = "may" if form.now.may_record else "may not"
+            msg = herald_message(
+                f"[{venue_name}] -- change: {change} record '{now.title}'",
+                now,
+            )
             now.may_record = form.now.may_record.data
 
         elif form.next.update.data:
-            if form.next.talk_id != next.id:
+            if form.next.talk_id.data != next.id:
                 flash("'next' changed, please refresh")
                 return redirect(url_for(".herald_venue", venue_name=venue_name))
+            change = "may" if form.next.may_record else "may not"
+            msg = herald_message(
+                f"[{venue_name}] -- change: {change} record '{next.title}'",
+                next,
+            )
             next.may_record = form.next.may_record.data
 
         elif form.now.speaker_here.data:
             msg = herald_message(
-                f"Current speaker for {venue_name} ({now.user.name}) arrived.",
-                current_user,
-                end=(now.scheduled_time + now.scheduled_duration),
+                f"[{venue_name}] -- Current speaker, {now.user.name}, arrived.", now
             )
 
         elif form.next.speaker_here.data:
             msg = herald_message(
-                f"Next speaker for {venue_name} ({next.user.name}) arrived.",
-                current_user,
-                end=(next.scheduled_time + next.scheduled_duration),
+                f"[{venue_name}] -- Next speaker, ({next.user.name}), arrived.", next
             )
 
         elif form.send_message.data:
-            msg = herald_message(
-                form.message.data, current_user, pendulum.today().end_of("day")
-            )
+            msg = herald_message(f"[{venue_name}] -- {form.message.data}", next)
 
-        if msg:
-            db.session.add(msg)
-
+        db.session.add(msg)
         db.session.commit()
 
     messages = AdminMessage.get_all_for_topic("heralds")
